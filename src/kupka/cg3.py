@@ -2,6 +2,8 @@ from abc import ABC, abstractmethod
 from typing import *
 from graphlib import TopologicalSorter
 from queue import Queue
+from concurrent.futures import ProcessPoolExecutor
+from multiprocessing import Queue as PQueue
 
 import pydot  # type: ignore
 
@@ -140,8 +142,11 @@ class CGField[T](CGMember[T]):
     def __call__(self) -> T:
         if self.cache.has(self.name):
             return cast(T, self.cache.read(self.name))
-        #return _call(self, self.graph, self.cache)
+        #exec = _call
+        #exec = call
         exec = Executor()
+        #exec = MultiprocessingExecutor()
+        #exec = SequentialProcessExecutor()
         return exec(self, self.graph, self.cache)
 
     @property
@@ -220,7 +225,7 @@ class CGInput[T](CGMember[T]):
             # TODO: should this be initialized upon CG.__init__ ?
             setattr(owner, "__cg_cache__", CGCacheProxy(CGCacheInMem()))
         owner.__cg_inputs__.add(name)
-        owner.__cg_func_map__[name] = lambda: self.value
+        owner.__cg_func_map__[name] = self.func
         self._graph = owner.__cg_graph__
         self._cache = owner.__cg_cache__
         self._input_map = owner.__cg_input_map__
@@ -284,14 +289,16 @@ class CGInput[T](CGMember[T]):
 
 
 def call(field: CGMember[T], graph: Dict[str, Set[str]], cache: CGCache) -> T:
+    """Simplest executor, as part of same process, leverages recursion"""
     value: T = field.func(**{key: call(input, graph, cache) for key, input in field.inputs.items()})
     cache.write(field.name, value)
     return value
 
 
 class Executor:
+    """An in-process sequential executor which can be sub-classed for easy extensions"""
 
-    def __init__(self, finalized_tasks_queue: Optional[Queue] = None):
+    def __init__(self, finalized_tasks_queue: Optional[Queue[Tuple[str, Any]]] = None):
         self._finalized_tasks_queue = finalized_tasks_queue or Queue()
 
     def __call__(self, field: CGMember[T], graph: Dict[str, Set[str]], cache: CGCache) -> T:
@@ -303,6 +310,7 @@ class Executor:
                 print(f"Getting next computation from execution_graph for {node}")
                 _func = field.func_map[node]
                 kwargs = {key: cache.read(predecessor) for key, predecessor in field.input_map[node].items()}
+                print(f"Submitting {node}={_func}(**{kwargs})")
                 self.submit(node, _func, kwargs)
 
             (node, result) = self._finalized_tasks_queue.get()
@@ -317,11 +325,61 @@ class Executor:
         self._finalized_tasks_queue.put((node, result))
 
 
+def init_pool_processes(q: Queue[Tuple[str, Any]]) -> None:
+    """This function adds the queue in the global context of the Processes spawn by the process pool"""
+    global queue
+
+    queue = q  # type: ignore
+
+
+class FunctionWrapper[T]:
+    """Meant to be used within a process pool. The queue is added to the global context"""
+    def __init__(self, node: str, func: Callable[..., T]):
+        self.func = func
+        self.node = node
+    def __call__(self, kwargs: Any) -> T:
+        result = self.func(**kwargs)
+        # The queue is added to the global context by the process pool
+        queue.put((self.node, result))  # type: ignore  # The queue is in the global context
+        return result
+
+
+class MultiprocessingExecutor(Executor):
+    def __init__(self, max_workers: Optional[int] = None) -> None:
+        queue: PQueue[Tuple[str, Any]] = PQueue()
+        super().__init__(finalized_tasks_queue=queue)  # type: ignore  # multiprocessing.Queue should be subtype of queue.Queue
+        self._executor = ProcessPoolExecutor(max_workers=max_workers, initializer=init_pool_processes, initargs=(queue,))  # type: ignore  # unable to map initargs types to initializer signature
+
+    def submit(self, node: str, func: Callable, kwargs: Dict[str, Any]) -> None:
+
+        _func = FunctionWrapper(node, func)
+
+        with self._executor as executor:
+            print(f"Submitting {func.__name__}(**{kwargs}) to pool")
+            future = executor.submit(_func, kwargs)
+            print(f"Submit done")
+
+
+class SequentialProcessExecutor(Executor):
+    def __init__(self) -> None:
+        queue: PQueue[Tuple[str, Any]] = PQueue()
+        super().__init__(finalized_tasks_queue=queue)  # type: ignore  # multiprocessing.Queue should be subtype of queue.Queue
+        self._executor = ProcessPoolExecutor(max_workers=1)  # type: ignore  # unable to map initargs types to initializer signature
+
+    def submit(self, node: str, func: Callable, kwargs: Dict[str, Any]) -> None:
+
+        with self._executor as executor:
+            print(f"Submitting {func.__name__}(**{kwargs}) to pool")
+            future = executor.submit(func, **kwargs)
+            print(f"Submit done")
+            result = future.result()
+            self._finalized_tasks_queue.put((node, result))
+
+
 def _call(field: CGMember[T], graph: Dict[str, Set[str]], cache: CGCache) -> T:
 
     execution_graph = build_exec_graph(field, graph, cache)
     execution_graph.prepare()
-    #print(f"Built execution_graph for {field.name}: {tuple(execution_graph.static_order())}")
 
     task_queue: Queue[Tuple[str, Callable, Dict[str, Any]]] = Queue()
     finalized_tasks_queue: Queue[Tuple[str, Any]] = Queue()
@@ -351,7 +409,7 @@ def _call(field: CGMember[T], graph: Dict[str, Set[str]], cache: CGCache) -> T:
     return cast(T, cache.read(field.name))
 
 
-def build_exec_graph(field: CGMember[T], graph: Dict[str, Set[str]], cache: CGCache) -> TopologicalSorter:
+def build_exec_graph(field: CGMember[T], graph: Dict[str, Set[str]], cache: CGCache) -> TopologicalSorter[str]:
     ts: TopologicalSorter[str] = TopologicalSorter()
     print(f"{graph}")
     predecessors = [(field.name, p) for p in graph[field.name]]
@@ -365,12 +423,9 @@ def build_exec_graph(field: CGMember[T], graph: Dict[str, Set[str]], cache: CGCa
         if node not in pruned_graph:
             pruned_graph[node] = set()
         pruned_graph[node].add(predecessor)
-        #ts.add(node, predecessor)  # Should this line be above?
         predecessors += [(predecessor, p) for p in graph[predecessor]]
     print("Pruned", pruned_graph)
     return TopologicalSorter(pruned_graph)
-    #ts.prepare()
-    #return ts
 
 
 def build_viz_graph(field: CGMember[T]) -> pydot.Dot:
@@ -383,19 +438,24 @@ def build_viz_graph(field: CGMember[T]) -> pydot.Dot:
     return graph
 
 
+
+# Test only
+def add(x: float, y: float) -> float:
+    return x + y
+
+class Example(CG):
+    a: CGInput[float] = CGInput()
+    b: CGInput[float] = CGInput()
+    c: CGField[float] = CGField(add, x=a, y=b)
+    d: CGField[float] = CGField(add, x=c, y=b)
+    e: CGField[float] = CGField(add, x=d, y=a)
+    f: CGField[float] = CGField(add, x=e, y=e)
+
 if __name__ == "__main__":
-
-
-    def add(x: float, y: float) -> float:
-        return x + y
-
-    class Example(CG):
-        a: CGInput[float] = CGInput()
-        b: CGInput[float] = CGInput()
-        c: CGField[float] = CGField(add, x=a, y=b)
-        d: CGField[float] = CGField(add, x=c, y=b)
 
     e = Example(a=1, b=2)
     assert e.c() == 3, f"Found {e.c()}"
     assert e.d() == 5
+    assert e.e() == 6
+    assert e.f() == 12
 
