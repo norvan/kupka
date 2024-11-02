@@ -73,7 +73,7 @@ class CG(ABC):
             setattr(self, name, value)
 
 
-class CGMember[T](ABC):
+class CGMember(ABC, Generic[T]):
     @property
     @abstractmethod
     def name(self) -> str: ...
@@ -98,7 +98,7 @@ class CGMember[T](ABC):
         return display(SVG(graph.create_svg()))
 
 
-class CGField[T](CGMember[T]):
+class CGField(CGMember[T], Generic[T]):
     _func: Callable[..., T]
     _inputs: Dict[str, CGMember[Any]]
 
@@ -201,7 +201,7 @@ class CGField[T](CGMember[T]):
         return self._func(*args, **kwargs)
 
 
-class CGInput[T](CGMember[T]):
+class CGInput(CGMember[T], Generic[T]):
     _name: Optional[str]
     _value: Optional[T]
     _graph: Optional[Dict[str, Set[str]]]
@@ -339,7 +339,7 @@ def init_pool_processes(q: Queue[Tuple[str, Any]]) -> None:
     queue = q  # type: ignore
 
 
-class FunctionWrapper[T]:
+class FunctionWrapper(Generic[T]):
     """Meant to be used within a process pool. The queue is added to the global context"""
 
     def __init__(self, node: str, func: Callable[..., T]):
@@ -418,7 +418,7 @@ def _call(field: CGMember[T], graph: Dict[str, Set[str]], cache: CGCache) -> T:
     return cast(T, cache.read(field.name))
 
 
-def build_exec_graph(field: CGMember[T], graph: Dict[str, Set[str]], cache: CGCache) -> TopologicalSorter[str]:
+def build_exec_graph(field: CGMember[T], graph: Dict[str, Set[str]], cache: CGCache) -> TopologicalSorter:
     ts: TopologicalSorter[str] = TopologicalSorter()
     print(f"{graph}")
     predecessors = [(field.name, p) for p in graph[field.name]]
