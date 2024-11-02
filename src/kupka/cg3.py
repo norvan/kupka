@@ -3,7 +3,7 @@ from concurrent.futures import ProcessPoolExecutor
 from graphlib import TopologicalSorter
 from multiprocessing import Queue as PQueue
 from queue import Queue
-from typing import *
+from typing import Any, Callable, Generic, TypeVar, cast
 
 import pydot  # type: ignore
 
@@ -22,9 +22,9 @@ class CGCache(ABC):
 
 
 class CGCacheInMem(CGCache):
-    _cache: Dict[str, Any]
+    _cache: dict[str, Any]
 
-    def __init__(self, cache: Optional[Dict[str, Any]] = None) -> None:
+    def __init__(self, cache: dict[str, Any] | None = None) -> None:
         self._cache = cache or {}
 
     def read(self, key: str) -> Any:
@@ -59,11 +59,11 @@ class CGCacheProxy(CGCache):
 class CG(ABC):
     """The abstract class for all graphs"""
 
-    __cg_graph__: Dict[str, Set[str]]
+    __cg_graph__: dict[str, set[str]]
     __cg_cache__: CGCacheProxy
-    __cg_inputs__: Set[str]
-    __cg_func_map__: Dict[str, Callable]
-    __cg_input_map__: Dict[str, Dict[str, str]]
+    __cg_inputs__: set[str]
+    __cg_func_map__: dict[str, Callable]
+    __cg_input_map__: dict[str, dict[str, str]]
 
     def __init__(self, **inputs: Any):
         for name, value in inputs.items():
@@ -79,16 +79,16 @@ class CGMember(ABC, Generic[T]):
     def name(self) -> str: ...
     @property
     @abstractmethod
-    def graph(self) -> Dict[str, Set[str]]: ...
+    def graph(self) -> dict[str, set[str]]: ...
     @property
     @abstractmethod
-    def inputs(self) -> Dict[str, "CGMember[Any]"]: ...
+    def inputs(self) -> dict[str, "CGMember[Any]"]: ...
     @property
     @abstractmethod
-    def func_map(self) -> Dict[str, Callable]: ...
+    def func_map(self) -> dict[str, Callable]: ...
     @property
     @abstractmethod
-    def input_map(self) -> Dict[str, Dict[str, str]]: ...
+    def input_map(self) -> dict[str, dict[str, str]]: ...
     @abstractmethod
     def func(self, *args: Any, **kwargs: Any) -> T: ...
     def _repr_png_(self) -> Any:
@@ -100,13 +100,13 @@ class CGMember(ABC, Generic[T]):
 
 class CGField(CGMember[T], Generic[T]):
     _func: Callable[..., T]
-    _inputs: Dict[str, CGMember[Any]]
+    _inputs: dict[str, CGMember[Any]]
 
-    _name: Optional[str]
-    _cache: Optional[CGCache]
-    _graph: Optional[Dict[str, Set[str]]]
-    _func_map: Optional[Dict[str, Callable]]
-    _input_map: Optional[Dict[str, Dict[str, str]]]
+    _name: str | None
+    _cache: CGCache | None
+    _graph: dict[str, set[str]] | None
+    _func_map: dict[str, Callable] | None
+    _input_map: dict[str, dict[str, str]] | None
 
     def __init__(self, func: Callable[..., T], **inputs: CGMember[T]) -> None:
         print("Initializing CGField")
@@ -139,7 +139,7 @@ class CGField(CGMember[T], Generic[T]):
         self._graph[name] = set([inp.name for inp in self.inputs.values()])
         print(f"{self._name} : {self._graph} {self._cache}")
 
-    def __get__(self, owner: Optional[CG], owner_type: Optional[Type[CG]] = None) -> "CGField":
+    def __get__(self, owner: CG | None, owner_type: type[CG] | None = None) -> "CGField":
         print(f"Getting on CGField {self.name} - owner: {owner}")
         if owner is None:
             return self
@@ -169,7 +169,7 @@ class CGField(CGMember[T], Generic[T]):
         return self._cache
 
     @property
-    def graph(self) -> Dict[str, Set[str]]:
+    def graph(self) -> dict[str, set[str]]:
         # TODO: Should this be private - and _graph becomes __graph?
         if self._graph is None:
             raise ValueError("CGField must be used as a descriptor")
@@ -182,19 +182,19 @@ class CGField(CGMember[T], Generic[T]):
         raise ValueError("Field {self.name} has not been computed yet")
 
     @property
-    def func_map(self) -> Dict[str, Callable]:
+    def func_map(self) -> dict[str, Callable]:
         if self._func_map is None:
             raise ValueError("CGField must be used as a descriptor")
         return self._func_map
 
     @property
-    def input_map(self) -> Dict[str, Dict[str, str]]:
+    def input_map(self) -> dict[str, dict[str, str]]:
         if self._input_map is None:
             raise ValueError("CGField must be used as a descriptor")
         return self._input_map
 
     @property
-    def inputs(self) -> Dict[str, CGMember[Any]]:
+    def inputs(self) -> dict[str, CGMember[Any]]:
         return self._inputs
 
     def func(self, *args: Any, **kwargs: Any) -> T:
@@ -202,13 +202,13 @@ class CGField(CGMember[T], Generic[T]):
 
 
 class CGInput(CGMember[T], Generic[T]):
-    _name: Optional[str]
-    _value: Optional[T]
-    _graph: Optional[Dict[str, Set[str]]]
-    _cache: Optional[CGCache]
-    _input_map: Optional[Dict[str, Dict[str, str]]]
+    _name: str | None
+    _value: T | None
+    _graph: dict[str, set[str]] | None
+    _cache: CGCache | None
+    _input_map: dict[str, dict[str, str]] | None
 
-    _func_map: Optional[Dict[str, Callable]]
+    _func_map: dict[str, Callable] | None
 
     def __init__(self) -> None:
         self._name = None
@@ -243,7 +243,7 @@ class CGInput(CGMember[T], Generic[T]):
         self._value = value
         self.cache.write(self.name, value)
 
-    def __get__(self, owner: Optional[CG], owner_type: Optional[Type[CG]] = None) -> T:
+    def __get__(self, owner: CG | None, owner_type: type[CG] | None = None) -> T:
         print(f"Getting on CGInput {self.name} - owner: {owner}")
         return self.value
 
@@ -263,23 +263,23 @@ class CGInput(CGMember[T], Generic[T]):
         return self._value
 
     @property
-    def inputs(self) -> Dict[str, CGMember[T]]:
+    def inputs(self) -> dict[str, CGMember[T]]:
         return {}
 
     @property
-    def graph(self) -> Dict[str, Set[str]]:
+    def graph(self) -> dict[str, set[str]]:
         if self._graph is None:
             raise ValueError("CGField must be used as a descriptor")
         return self._graph
 
     @property
-    def func_map(self) -> Dict[str, Callable]:
+    def func_map(self) -> dict[str, Callable]:
         if self._func_map is None:
             raise ValueError("CGField must be used as a descriptor")
         return self._func_map
 
     @property
-    def input_map(self) -> Dict[str, Dict[str, str]]:
+    def input_map(self) -> dict[str, dict[str, str]]:
         if self._input_map is None:
             raise ValueError("CGField must be used as a descriptor")
         return self._input_map
@@ -295,7 +295,7 @@ class CGInput(CGMember[T], Generic[T]):
         return self.value
 
 
-def call(field: CGMember[T], graph: Dict[str, Set[str]], cache: CGCache) -> T:
+def call(field: CGMember[T], graph: dict[str, set[str]], cache: CGCache) -> T:
     """Simplest executor, as part of same process, leverages recursion"""
     value: T = field.func(**{key: call(input, graph, cache) for key, input in field.inputs.items()})
     cache.write(field.name, value)
@@ -305,10 +305,10 @@ def call(field: CGMember[T], graph: Dict[str, Set[str]], cache: CGCache) -> T:
 class Executor:
     """An in-process sequential executor which can be sub-classed for easy extensions"""
 
-    def __init__(self, finalized_tasks_queue: Optional[Queue[Tuple[str, Any]]] = None):
+    def __init__(self, finalized_tasks_queue: Queue[tuple[str, Any]] | None = None):
         self._finalized_tasks_queue = finalized_tasks_queue or Queue()
 
-    def __call__(self, field: CGMember[T], graph: Dict[str, Set[str]], cache: CGCache) -> T:
+    def __call__(self, field: CGMember[T], graph: dict[str, set[str]], cache: CGCache) -> T:
         execution_graph = build_exec_graph(field, graph, cache)
         execution_graph.prepare()
 
@@ -327,12 +327,12 @@ class Executor:
 
         return cast(T, cache.read(field.name))
 
-    def submit(self, node: str, func: Callable, kwargs: Dict[str, Any]) -> None:
+    def submit(self, node: str, func: Callable, kwargs: dict[str, Any]) -> None:
         result = func(**kwargs)
         self._finalized_tasks_queue.put((node, result))
 
 
-def init_pool_processes(q: Queue[Tuple[str, Any]]) -> None:
+def init_pool_processes(q: Queue[tuple[str, Any]]) -> None:
     """This function adds the queue in the global context of the Processes spawn by the process pool"""
     global queue
 
@@ -354,12 +354,12 @@ class FunctionWrapper(Generic[T]):
 
 
 class MultiprocessingExecutor(Executor):
-    def __init__(self, max_workers: Optional[int] = None) -> None:
-        queue: PQueue[Tuple[str, Any]] = PQueue()
+    def __init__(self, max_workers: int | None = None) -> None:
+        queue: PQueue[tuple[str, Any]] = PQueue()
         super().__init__(finalized_tasks_queue=queue)  # type: ignore  # multiprocessing.Queue should be subtype of queue.Queue
         self._executor = ProcessPoolExecutor(max_workers=max_workers, initializer=init_pool_processes, initargs=(queue,))  # type: ignore  # unable to map initargs types to initializer signature
 
-    def submit(self, node: str, func: Callable, kwargs: Dict[str, Any]) -> None:
+    def submit(self, node: str, func: Callable, kwargs: dict[str, Any]) -> None:
 
         _func = FunctionWrapper(node, func)
 
@@ -371,11 +371,11 @@ class MultiprocessingExecutor(Executor):
 
 class SequentialProcessExecutor(Executor):
     def __init__(self) -> None:
-        queue: PQueue[Tuple[str, Any]] = PQueue()
+        queue: PQueue[tuple[str, Any]] = PQueue()
         super().__init__(finalized_tasks_queue=queue)  # type: ignore  # multiprocessing.Queue should be subtype of queue.Queue
         self._executor = ProcessPoolExecutor(max_workers=1)  # type: ignore  # unable to map initargs types to initializer signature
 
-    def submit(self, node: str, func: Callable, kwargs: Dict[str, Any]) -> None:
+    def submit(self, node: str, func: Callable, kwargs: dict[str, Any]) -> None:
 
         with self._executor as executor:
             print(f"Submitting {func.__name__}(**{kwargs}) to pool")
@@ -385,13 +385,13 @@ class SequentialProcessExecutor(Executor):
             self._finalized_tasks_queue.put((node, result))
 
 
-def _call(field: CGMember[T], graph: Dict[str, Set[str]], cache: CGCache) -> T:
+def _call(field: CGMember[T], graph: dict[str, set[str]], cache: CGCache) -> T:
 
     execution_graph = build_exec_graph(field, graph, cache)
     execution_graph.prepare()
 
-    task_queue: Queue[Tuple[str, Callable, Dict[str, Any]]] = Queue()
-    finalized_tasks_queue: Queue[Tuple[str, Any]] = Queue()
+    task_queue: Queue[tuple[str, Callable, dict[str, Any]]] = Queue()
+    finalized_tasks_queue: Queue[tuple[str, Any]] = Queue()
 
     while execution_graph.is_active():
         for node in execution_graph.get_ready():
@@ -418,12 +418,12 @@ def _call(field: CGMember[T], graph: Dict[str, Set[str]], cache: CGCache) -> T:
     return cast(T, cache.read(field.name))
 
 
-def build_exec_graph(field: CGMember[T], graph: Dict[str, Set[str]], cache: CGCache) -> TopologicalSorter:
+def build_exec_graph(field: CGMember[T], graph: dict[str, set[str]], cache: CGCache) -> TopologicalSorter:
     ts: TopologicalSorter[str] = TopologicalSorter()
     print(f"{graph}")
     predecessors = [(field.name, p) for p in graph[field.name]]
     print(f"{predecessors}")
-    pruned_graph: Dict[str, Set[str]] = {field.name: set()}
+    pruned_graph: dict[str, set[str]] = {field.name: set()}
     while predecessors:
         node, predecessor = predecessors.pop()
         if cache.has(predecessor):
