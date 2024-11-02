@@ -1,54 +1,64 @@
 from abc import ABC, abstractmethod
-from typing import *
-from graphlib import TopologicalSorter
-from queue import Queue
 from concurrent.futures import ProcessPoolExecutor
+from graphlib import TopologicalSorter
 from multiprocessing import Queue as PQueue
+from queue import Queue
+from typing import *
 
 import pydot  # type: ignore
 
-
 T = TypeVar("T")
+
 
 class CGCache(ABC):
     """Interface for Cache objects"""
+
     @abstractmethod
-    def read(self, key: str) -> Any:
-        ...
+    def read(self, key: str) -> Any: ...
     @abstractmethod
-    def write(self, key: str, value: Any) -> bool:
-        ...
+    def write(self, key: str, value: Any) -> bool: ...
     @abstractmethod
-    def has(self, key: str) -> bool:
-        ...
+    def has(self, key: str) -> bool: ...
+
 
 class CGCacheInMem(CGCache):
     _cache: Dict[str, Any]
+
     def __init__(self, cache: Optional[Dict[str, Any]] = None) -> None:
         self._cache = cache or {}
+
     def read(self, key: str) -> Any:
         return self._cache[key]
+
     def write(self, key: str, value: Any) -> bool:
         self._cache[key] = value
         return True
+
     def has(self, key: str) -> bool:
         return key in self._cache
 
+
 class CGCacheProxy(CGCache):
     """A pass-through cache used to ensure pointers are kept"""
+
     _cache: CGCache
+
     def __init__(self, cache: CGCache) -> None:
         self._cache = cache
+
     def read(self, key: str) -> Any:
         return self._cache.read(key)
+
     def write(self, key: str, value: Any) -> bool:
         return self._cache.write(key, value)
+
     def has(self, key: str) -> bool:
         return self._cache.has(key)
 
 
 class CG(ABC):
     """The abstract class for all graphs"""
+
     __cg_graph__: Dict[str, Set[str]]
     __cg_cache__: CGCacheProxy
     __cg_inputs__: Set[str]
@@ -62,32 +72,28 @@ class CG(ABC):
             print(f"Setting {name} on CG instance")
             setattr(self, name, value)
 
+
 class CGMember[T](ABC):
     @property
     @abstractmethod
-    def name(self) -> str:
-        ...
+    def name(self) -> str: ...
     @property
     @abstractmethod
-    def graph(self) -> Dict[str, Set[str]]:
-        ...
+    def graph(self) -> Dict[str, Set[str]]: ...
     @property
     @abstractmethod
-    def inputs(self) -> Dict[str, "CGMember[Any]"]:
-        ...
+    def inputs(self) -> Dict[str, "CGMember[Any]"]: ...
     @property
     @abstractmethod
-    def func_map(self) -> Dict[str, Callable]:
-        ...
+    def func_map(self) -> Dict[str, Callable]: ...
     @property
     @abstractmethod
-    def input_map(self) -> Dict[str, Dict[str, str]]:
-        ...
+    def input_map(self) -> Dict[str, Dict[str, str]]: ...
     @abstractmethod
-    def func(self, *args: Any, **kwargs: Any) -> T:
-        ...
+    def func(self, *args: Any, **kwargs: Any) -> T: ...
     def _repr_png_(self) -> Any:
         from IPython.display import SVG, display  # type: ignore
+
         graph = build_viz_graph(self)
         return display(SVG(graph.create_svg()))
 
@@ -142,11 +148,11 @@ class CGField[T](CGMember[T]):
     def __call__(self) -> T:
         if self.cache.has(self.name):
             return cast(T, self.cache.read(self.name))
-        #exec = _call
-        #exec = call
+        # exec = _call
+        # exec = call
         exec = Executor()
-        #exec = MultiprocessingExecutor()
-        #exec = SequentialProcessExecutor()
+        # exec = MultiprocessingExecutor()
+        # exec = SequentialProcessExecutor()
         return exec(self, self.graph, self.cache)
 
     @property
@@ -203,6 +209,7 @@ class CGInput[T](CGMember[T]):
     _input_map: Optional[Dict[str, Dict[str, str]]]
 
     _func_map: Optional[Dict[str, Callable]]
+
     def __init__(self) -> None:
         self._name = None
         self._value = None
@@ -334,9 +341,11 @@ def init_pool_processes(q: Queue[Tuple[str, Any]]) -> None:
 
 class FunctionWrapper[T]:
     """Meant to be used within a process pool. The queue is added to the global context"""
+
     def __init__(self, node: str, func: Callable[..., T]):
         self.func = func
         self.node = node
+
     def __call__(self, kwargs: Any) -> T:
         result = self.func(**kwargs)
         # The queue is added to the global context by the process pool
@@ -438,10 +447,10 @@ def build_viz_graph(field: CGMember[T]) -> pydot.Dot:
     return graph
 
 
-
 # Test only
 def add(x: float, y: float) -> float:
     return x + y
+
 
 class Example(CG):
     a: CGInput[float] = CGInput()
@@ -451,6 +460,7 @@ class Example(CG):
     e: CGField[float] = CGField(add, x=d, y=a)
     f: CGField[float] = CGField(add, x=e, y=e)
 
+
 if __name__ == "__main__":
 
     e = Example(a=1, b=2)
@@ -458,4 +468,3 @@ if __name__ == "__main__":
     assert e.d() == 5
     assert e.e() == 6
     assert e.f() == 12
-
