@@ -1,0 +1,72 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+
+[project]
+name = "kupka"
+version = "0.0.1"
+license = {file = "LICENSE"}
+description = "A Flexible Computational Graph Library For Python"
+authors = [{name = "Norvan Sahiner"}]
+maintainers = [{name = "Norvan Sahiner"}]
+requires-python = ">=3.10"
+readme = "README.md"
+classifiers = [
+    'Intended Audience :: Developers',
+    'Intended Audience :: Science/Research',
+    'Programming Language :: Python',
+    'Programming Language :: Python :: 3',
+    'Programming Language :: Python :: 3.10',
+    'Programming Language :: Python :: 3.11',
+    'Programming Language :: Python :: 3.12',
+    'Programming Language :: Python :: 3.13',
+    'Programming Language :: Python :: 3 :: Only',
+    'Topic :: Software Development',
+    'Topic :: Scientific/Engineering',
+    'Typing :: Typed',
+    'Operating System :: Microsoft :: Windows',
+    'Operating System :: POSIX',
+    'Operating System :: Unix',
+    'Operating System :: MacOS',
+]
+
+dependencies = [
+    "pydot",
+]
+
+[project.urls]
+homepage = "https://github.com/norvan/kupka"
+documentation = "https://github.com/norvan/kupka"
+source = "https://github.com/norvan/kupka"
+download = "https://pypi.org/project/kupka/#files"
+tracker = "https://github.com/norvan/kupka/issues"
+#"release notes" = "https://github.com/norvan/kupka/release"
+
+[project.optional-dependencies]
+all = [
+    "pydot",
+]
+dev = [
+    "tox",
+    "mypy",
+    "pytest",
+    "mock",
+    "black",
+    "isort",
+]
+
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["kupka*"]
+namespaces = false
+
+
+[tool.mypy]
+mypy_path = "$MYPY_CONFIG_FILE_DIR/src"
+packages = "kupka"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+
