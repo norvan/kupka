@@ -1,13 +1,15 @@
 from abc import ABC, abstractmethod
 from concurrent.futures import ProcessPoolExecutor
+from contextlib import contextmanager
 from graphlib import TopologicalSorter
 from multiprocessing import Queue as PQueue
 from queue import Queue
-from typing import Any, Callable, Generic, Type, TypeVar, cast
+from typing import Any, Callable, ContextManager, Generic, Iterator, Type, TypeVar, cast
 
 import pydot  # type: ignore
 
 T = TypeVar("T")
+Contextual = Any  # TODO: Find a better type hint
 
 
 class KPCache(ABC):
@@ -154,7 +156,7 @@ class Kupka:
     @classmethod
     def from_klass(cls, kupklass: Kupklass) -> "Kupka":
         return cls(
-            cache=KPCacheProxy(KPCacheInMem()),
+            cache=kp_settings.build_cache(),
             graph=kupklass.graph,
             inputs=kupklass.inputs,
             func_map={node: func for node, func in kupklass.func_map.items()},
@@ -201,29 +203,29 @@ class Kupka:
 
     def build_exec_graph(self, name: str) -> TopologicalSorter:
         ts: TopologicalSorter[str] = TopologicalSorter()
-        print(f"{self.graph}")
+        print(f"[EXECUTION GRAPH] {self.graph}")
         predecessors = [(name, p) for p in self.graph[name]]
-        print(f"{predecessors}")
+        print(f"[EXECUTION GRAPH] {predecessors}")
         pruned_graph: dict[str, set[str]] = {name: set()}
         while predecessors:
             node, predecessor = predecessors.pop()
             if self.cache.has(predecessor):
                 continue
-            print(f"Adding nodes: {node} -> {predecessor}")
+            print(f"[EXECUTION GRAPH] Adding nodes: {node} -> {predecessor}")
             if node not in pruned_graph:
                 pruned_graph[node] = set()
             pruned_graph[node].add(predecessor)
             predecessors += [(predecessor, p) for p in self.graph[predecessor]]
-        print("Pruned", pruned_graph)
+        print("[EXECUTION GRAPH] Pruned", pruned_graph)
         return TopologicalSorter(pruned_graph)
 
     def build_viz_graph(self, node: str) -> pydot.Dot:
         graph = pydot.Dot("my_graph", graph_type="digraph", rankdir="LR")
         for node in self.graph.keys():
-            graph.add_node(pydot.Node(node, label=node, color="black", style="rounded"))
+            graph.add_node(pydot.Node(node, label=f"{node}", color="black", style="rounded"))
         for node, dependencies in self.graph.items():
             for dependency in dependencies:
-                graph.add_edge(pydot.Edge(node, dependency, color="black"))
+                graph.add_edge(pydot.Edge(dependency, node, color="black"))
         return graph
 
 
@@ -237,7 +239,7 @@ class KP(ABC):
         for name, value in inputs.items():
             if name not in self.__kupka__.inputs:
                 raise AttributeError()
-            print(f"Setting {name} on KP instance")
+            print(f"[INITIALIZATION] Setting {name} on KP instance")
             self.__kupka__.set_input(node=name, value=value)
 
 
@@ -261,8 +263,11 @@ class KPNode(Kupka, Generic[T]):
 
     def __call__(self) -> T:
         if self.cache.has(self._node):
+            print(f"[EXECUTION - CACHE] Found {self._node} in cache, not computing")
             return cast(T, self.cache.read(self._node))
-        exec = MultiprocessingKPExecutor()
+
+        print(f"[EXECUTION - COMPUTATION] Did not find {self._node} in cache, computing...")
+        exec = kp_settings.executor()
 
         return cast(T, exec(self._node, self))
 
@@ -279,13 +284,13 @@ class KPField(KPMember[T], Generic[T]):
     _name: str | None
 
     def __init__(self, func: Callable[..., T], **inputs: KPMember[T]) -> None:
-        print("Initializing KPField")
+        print("[GRAPH INIT] Initializing KPField")
         self._func = func
         self._inputs = inputs
         self._name = None
 
     def __set_name__(self, owner: Type[KP], name: str) -> None:
-        print(f"setting name on KPField {name} - owner: {owner}")
+        print(f"[GRAPH INIT] setting name on KPField {name} - owner: {owner}")
         self._name = name
         _kupklass = Kupklass.get_kupklass(owner)
         _kupklass.add_field(
@@ -295,9 +300,10 @@ class KPField(KPMember[T], Generic[T]):
         )
 
     def __get__(self, owner: KP | None, owner_type: type[KP] | None = None) -> KPNode[T]:
-        print(f"Getting on KPField {self.name} - owner: {owner}")
         if owner is None:
+            print(f"[GRAPH INIT] call on KPField class for {self.name}")
             return self  # type: ignore  # FIXME: use prototype to override behaviour between instance and class
+        print(f"[EXECUTION] Getting on KPField {self.name} - owner: {owner}")
         return KPNode(self.name, owner.__kupka__)
 
     @property
@@ -314,16 +320,17 @@ class KPInput(KPMember[T], Generic[T]):
         self._name = None
 
     def __set_name__(self, owner: Type[KP], name: str) -> None:
-        print(f"Setting name on KPInput {name} - owner: {owner}")
+        print(f"[GRAPH INIT] Setting name on KPInput {name} - owner: {owner}")
         self._name = name
 
         _kupklass = Kupklass.get_kupklass(owner)
         _kupklass.add_input(node=name)
 
     def __get__(self, owner: KP | None, owner_type: type[KP] | None = None) -> KPNode[T]:
-        print(f"Getting on KPInput {self.name} - owner: {owner}")
         if owner is None:
+            print(f"[GRAPH INIT] call on KPInput class for {self.name}")
             return self  # type: ignore  # FIXME: use prototype to override behaviour between instance and class
+        print(f"[EXECUTION] Getting on KPInput {self.name} - owner: {owner}")
         return KPNode(self.name, owner.__kupka__)
 
     @property
@@ -340,6 +347,14 @@ def call(name: str, kupka: Kupka) -> Any:
     return value
 
 
+@contextmanager
+def passthrough() -> Iterator:
+    try:
+        yield
+    finally:
+        pass
+
+
 class KPExecutor:
     """An in-process sequential executor which can be sub-classed for easy extensions"""
 
@@ -350,24 +365,28 @@ class KPExecutor:
         execution_graph = kupka.build_exec_graph(name)
         execution_graph.prepare()
 
-        while execution_graph.is_active():
-            for node in execution_graph.get_ready():
-                print(f"Getting next computation from execution_graph for {node}")
-                _func = kupka.func_map[node]
-                kwargs = {key: kupka.cache.read(predecessor) for key, predecessor in kupka.input_map[node].items()}
-                print(f"Submitting {node}={_func}(**{kwargs})")
-                self.submit(node, _func, kwargs)
+        with self.context() as context:
+            while execution_graph.is_active():
+                for node in execution_graph.get_ready():
+                    print(f"[EXECUTION] Getting next computation from execution_graph for {node}")
+                    _func = kupka.func_map[node]
+                    kwargs = {key: kupka.cache.read(predecessor) for key, predecessor in kupka.input_map[node].items()}
+                    print(f"[EXECUTION] Submitting {node}={_func}(**{kwargs})")
+                    self.submit(node, _func, kwargs, context)
 
-            (node, result) = self._finalized_tasks_queue.get()
-            print(f"Writing in cache {node}={result}")
-            kupka.cache.write(node, result)
-            execution_graph.done(node)
+                (node, result) = self._finalized_tasks_queue.get()
+                print(f"[EXECUTION] Writing in cache {node}={result}")
+                kupka.cache.write(node, result)
+                execution_graph.done(node)
 
         return kupka.cache.read(name)
 
-    def submit(self, node: str, func: Callable, kwargs: dict[str, Any]) -> None:
+    def submit(self, node: str, func: Callable, kwargs: dict[str, Any], context: Contextual) -> None:
         result = func(**kwargs)
         self._finalized_tasks_queue.put((node, result))
+
+    def context(self) -> ContextManager[Contextual]:
+        return passthrough()
 
 
 def init_pool_processes(q: Queue[tuple[str, Any]]) -> None:
@@ -393,34 +412,37 @@ class FunctionWrapper(Generic[T]):
 
 class MultiprocessingKPExecutor(KPExecutor):
     def __init__(self, max_workers: int | None = None) -> None:
-        queue: PQueue[tuple[str, Any]] = PQueue()
-        super().__init__(finalized_tasks_queue=queue)  # type: ignore  # multiprocessing.Queue should be subtype of queue.Queue
-        self._executor = ProcessPoolExecutor(max_workers=max_workers, initializer=init_pool_processes, initargs=(queue,))  # type: ignore  # unable to map initargs types to initializer signature
+        self._queue: PQueue[tuple[str, Any]] = PQueue()
+        super().__init__(finalized_tasks_queue=self._queue)  # type: ignore  # multiprocessing.Queue should be subtype of queue.Queue
+        self._max_workers = max_workers
 
-    def submit(self, node: str, func: Callable, kwargs: dict[str, Any]) -> None:
+    def submit(self, node: str, func: Callable, kwargs: dict[str, Any], context: Contextual) -> None:
 
         _func = FunctionWrapper(node, func)
 
-        with self._executor as executor:
-            print(f"Submitting {func.__name__}(**{kwargs}) to pool")
-            future = executor.submit(_func, kwargs)
-            print(f"Submit done")
+        print(f"[EXECUTION] Submitting {func.__name__}(**{kwargs}) to pool")
+        future = context.submit(_func, kwargs)
+        print(f"[EXECUTION] Submit done")
+
+    def context(self) -> Contextual:
+        return ProcessPoolExecutor(max_workers=self._max_workers, initializer=init_pool_processes, initargs=(self._queue,))  # type: ignore  # unable to map initargs types to initializer signature
 
 
 class SequentialProcessKPExecutor(KPExecutor):
     def __init__(self) -> None:
         queue: PQueue[tuple[str, Any]] = PQueue()
         super().__init__(finalized_tasks_queue=queue)  # type: ignore  # multiprocessing.Queue should be subtype of queue.Queue
-        self._executor = ProcessPoolExecutor(max_workers=1)  # type: ignore  # unable to map initargs types to initializer signature
 
-    def submit(self, node: str, func: Callable, kwargs: dict[str, Any]) -> None:
+    def submit(self, node: str, func: Callable, kwargs: dict[str, Any], context: Contextual) -> None:
 
-        with self._executor as executor:
-            print(f"Submitting {func.__name__}(**{kwargs}) to pool")
-            future = executor.submit(func, **kwargs)
-            print(f"Submit done")
-            result = future.result()
-            self._finalized_tasks_queue.put((node, result))
+        print(f"[EXECUTION] Submitting {func.__name__}(**{kwargs}) to pool")
+        future = context.submit(func, **kwargs)
+        print(f"[EXECUTION] Submit done")
+        result = future.result()
+        self._finalized_tasks_queue.put((node, result))
+
+    def context(self) -> Contextual:
+        return ProcessPoolExecutor(max_workers=1)  # type: ignore  # unable to map initargs types to initializer signature
 
 
 def _call(name: str, kupka: Kupka) -> Any:
@@ -433,7 +455,7 @@ def _call(name: str, kupka: Kupka) -> Any:
 
     while execution_graph.is_active():
         for node in execution_graph.get_ready():
-            print(f"Getting next computation from execution_graph for {node}")
+            print(f"[EXECUTION] Getting next computation from execution_graph for {node}")
             _func = kupka.func_map[node]
             kwargs = {key: kupka.cache.read(predecessor) for key, predecessor in kupka.input_map[node].items()}
             task_queue.put((node, _func, kwargs))
@@ -443,11 +465,55 @@ def _call(name: str, kupka: Kupka) -> Any:
             result = _func(**predecessors)
             finalized_tasks_queue.put((node, result))
             ###
-            print(f"Computed {node}={result}")
+            print(f"[EXECUTION] Computed {node}={result}")
 
         (node, result) = finalized_tasks_queue.get()
-        print(f"Writing in cache {node}={result}")
+        print(f"[EXECUTION] Writing in cache {node}={result}")
         kupka.cache.write(node, result)
         execution_graph.done(node)
 
     return kupka.cache.read(name)
+
+
+class kp_settings:
+    _executor: KPExecutor = KPExecutor()
+    _cache_type: Type[KPCache] = KPCacheInMem
+    _cache_settings: dict[str, Any] = {}
+
+    @classmethod
+    def set_global_executor(cls, executor: KPExecutor) -> None:
+        cls._executor = executor
+
+    @classmethod
+    def set_global_cache(cls, cache_type: Type[KPCache], cache_settings: dict[str, Any]) -> None:
+        cls._cache_type = cache_type
+        cls._cache_settings = cache_settings
+
+    @classmethod
+    @contextmanager
+    def use(
+        cls,
+        *,
+        executor: KPExecutor | None = None,
+        cache_type: type[KPCache] | None = None,
+        cache_settings: dict[str, Any] | None = None,
+    ) -> Iterator:
+        executor = executor or cls._executor
+        cache_type = cache_type or cls._cache_type
+        cache_settings = cache_settings or cls._cache_settings
+        try:
+            old = cls._executor, cls._cache_type, cls._cache_settings
+            cls._executor = executor
+            cls._cache_type = cache_type
+            cls._cache_settings = cache_settings
+            yield
+        finally:
+            cls._executor, cls._cache_type, cls._cache_settings = old
+
+    @classmethod
+    def executor(cls) -> KPExecutor:
+        return cls._executor
+
+    @classmethod
+    def build_cache(cls) -> KPCache:
+        return cls._cache_type(**cls._cache_settings)

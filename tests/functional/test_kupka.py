@@ -1,4 +1,15 @@
-from kupka import KP, KPField, KPInput, KPNode
+import pytest
+
+from kupka import (
+    KP,
+    KPExecutor,
+    KPField,
+    KPInput,
+    KPNode,
+    MultiprocessingKPExecutor,
+    SequentialProcessKPExecutor,
+    kp_settings,
+)
 
 
 def add(x: float, y: float) -> float:
@@ -27,25 +38,72 @@ class SecondExample(KP):
     f: KPNode[float] = KPField(add, x=e, y=e)
 
 
-def test_it():
-    e1 = FirstExample(a=1, b=2)
-    e2 = FirstExample(a=3, b=2)
-    e3 = SecondExample(a=2, b=4)
-    assert e1.c() == 3
-    assert e2.c() == 5
-    assert e3.c() == 8
+@pytest.mark.parametrize(
+    "executor",
+    [
+        KPExecutor(),
+        SequentialProcessKPExecutor(),
+        MultiprocessingKPExecutor(),
+    ],
+)
+def test_no_gap(executor):
+    with kp_settings.use(executor=executor):
 
-    assert e1.d() == 5
-    assert e2.d() == 7
-    assert e3.d() == 32
+        e1 = FirstExample(a=1, b=2)
+        e2 = FirstExample(a=3, b=2)
+        e3 = SecondExample(a=2, b=4)
 
-    assert e1.e() == 6
-    assert e2.e() == 10
-    assert e3.e() == 64
+        assert e1.c() == 3
+        assert e2.c() == 5
+        assert e3.c() == 8
 
-    assert e1.f() == 36
-    assert e2.f() == 100
-    assert e3.f() == 128
+        assert e1.d() == 5
+        assert e2.d() == 7
+        assert e3.d() == 32
+
+        assert e1.e() == 6
+        assert e2.e() == 10
+        assert e3.e() == 64
+
+        assert e1.f() == 36
+        assert e2.f() == 100
+        assert e3.f() == 128
+
+
+def test_end_first():
+    assert isinstance(kp_settings.executor(), KPExecutor)
+    try:
+        kp_settings.set_global_executor(SequentialProcessKPExecutor())
+        assert isinstance(kp_settings.executor(), SequentialProcessKPExecutor)
+
+        print("*" * 30, "INIT", "*" * 30)
+
+        e1 = FirstExample(a=1, b=2)
+        e2 = FirstExample(a=3, b=2)
+        e3 = SecondExample(a=2, b=4)
+
+        print("*" * 30, "START END: computation", "*" * 30)
+
+        assert e1.f() == 36
+        assert e2.f() == 100
+        assert e3.f() == 128
+
+        print("*" * 30, "START: precomputed", "*" * 30)
+
+        assert e1.e() == 6
+        assert e2.e() == 10
+        assert e3.e() == 64
+
+        assert e1.d() == 5
+        assert e2.d() == 7
+        assert e3.d() == 32
+
+        assert e1.c() == 3
+        assert e2.c() == 5
+        assert e3.c() == 8
+    finally:
+        kp_settings.set_global_executor(KPExecutor())
+    assert isinstance(kp_settings.executor(), KPExecutor)
 
 
 if __name__ == "__main__":
