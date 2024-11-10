@@ -44,10 +44,12 @@ tracker = "https://github.com/norvan/kupka/issues"
 #"release notes" = "https://github.com/norvan/kupka/release"
 
 [project.optional-dependencies]
-all = [
+viz = [
     "pydot",
 ]
 dev = [
+    "build",
+    "twine",
     "tox",
     "mypy",
     "pytest",
