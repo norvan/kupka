@@ -1,25 +1,25 @@
 import logging
+from collections.abc import Callable
 from concurrent.futures import ProcessPoolExecutor
 from multiprocessing import Queue as PQueue
 from queue import Queue
-from typing import Any, Callable, Generic, TypeVar
+from typing import Any, Generic, TypeVar
 
-from kupka._impl.execution.core import KPExecutor, Contextual
-
+from kupka._impl.execution.core import Contextual, KPExecutor
 
 T = TypeVar("T")
 _LOGGER = logging.getLogger(__name__)
 
 
 def init_pool_processes(q: Queue[tuple[str, Any]]) -> None:
-    """This function adds the queue in the global context of the Processes spawn by the process pool"""
+    """Add the queue in the global context of the Processes spawn by the process pool."""
     global queue
 
     queue = q  # type: ignore
 
 
 class FunctionWrapper(Generic[T]):
-    """Meant to be used within a process pool. The queue is added to the global context"""
+    """Meant to be used within a process pool. The queue is added to the global context."""
 
     def __init__(self, node: str, func: Callable[..., T]):
         self.func = func
@@ -39,12 +39,13 @@ class MultiprocessingKPExecutor(KPExecutor):
         self._max_workers = max_workers
 
     def submit(self, node: str, func: Callable, kwargs: dict[str, Any], context: Contextual) -> None:
-
         _func = FunctionWrapper(node, func)
 
         _LOGGER.debug(f"[EXECUTION] Submitting {func.__name__}(**{kwargs}) to pool")
-        future = context.submit(_func, kwargs)
-        _LOGGER.debug(f"[EXECUTION] Submit done")
+        context.submit(_func, kwargs)
+        _LOGGER.debug("[EXECUTION] Submit done")
 
     def context(self) -> Contextual:
-        return ProcessPoolExecutor(max_workers=self._max_workers, initializer=init_pool_processes, initargs=(self._queue,))  # type: ignore  # unable to map initargs types to initializer signature
+        return ProcessPoolExecutor(
+            max_workers=self._max_workers, initializer=init_pool_processes, initargs=(self._queue,)
+        )  # type: ignore  # unable to map initargs types to initializer signature

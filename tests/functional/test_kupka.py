@@ -48,7 +48,6 @@ class SecondExample(KP):
 )
 def test_no_gap(executor):
     with kp_settings.use(executor=executor):
-
         e1 = FirstExample(a=1, b=2)
         e2 = FirstExample(a=3, b=2)
         e3 = SecondExample(a=2, b=4)
@@ -104,12 +103,3 @@ def test_end_first():
     finally:
         kp_settings.set_global_executor(KPExecutor())
     assert isinstance(kp_settings.executor(), KPExecutor)
-
-
-if __name__ == "__main__":
-
-    e = Example(a=1, b=2)
-    assert e.c() == 3, f"Found {e.c()}"
-    assert e.d() == 5
-    assert e.e() == 6
-    assert e.f() == 12

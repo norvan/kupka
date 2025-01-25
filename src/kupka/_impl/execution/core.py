@@ -1,7 +1,8 @@
 import logging
-from contextlib import contextmanager
-from typing import Any, Callable, ContextManager, Iterator, TYPE_CHECKING
+from collections.abc import Callable, Iterator
+from contextlib import AbstractContextManager, contextmanager
 from queue import Queue
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from kupka._impl.kupka import Kupka
@@ -20,7 +21,7 @@ def passthrough() -> Iterator:
 
 
 class KPExecutor:
-    """An in-process sequential executor which can be sub-classed for easy extensions"""
+    """An in-process sequential executor which can be sub-classed for easy extensions."""
 
     def __init__(self, finalized_tasks_queue: Queue[tuple[str, Any]] | None = None):
         self._finalized_tasks_queue = finalized_tasks_queue or Queue()
@@ -49,5 +50,5 @@ class KPExecutor:
         result = func(**kwargs)
         self._finalized_tasks_queue.put((node, result))
 
-    def context(self) -> ContextManager[Contextual]:
+    def context(self) -> AbstractContextManager[Contextual]:
         return passthrough()

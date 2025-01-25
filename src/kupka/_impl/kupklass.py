@@ -1,4 +1,4 @@
-from typing import Callable, Type
+from collections.abc import Callable
 
 
 class Kupklass:

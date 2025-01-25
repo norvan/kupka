@@ -1,4 +1,4 @@
-from typing import cast, Generic, TypeVar
+from typing import Generic, TypeVar, cast
 
 T = TypeVar("T")
 
@@ -22,11 +22,11 @@ class WrappedValue(Generic[T]):
     def set_value(self, value: T) -> None:
         # NOTE: I am not a fan of the 2-step initialization, but for now it'll do.
         if self._initialized:
-            raise AttributeError(f"Value has already been set!")
+            raise AttributeError("Value has already been set!")
         self._value = value
         self._initialized = True
 
     def __call__(self) -> T:
         if not self._initialized:
-            raise ValueError(f"Value has not been set!")
+            raise ValueError("Value has not been set!")
         return cast(T, self._value)

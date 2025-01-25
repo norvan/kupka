@@ -3,7 +3,7 @@ from typing import Any
 
 
 class KPCache(ABC):
-    """Interface for Cache objects"""
+    """Interface for Cache objects."""
 
     @abstractmethod
     def read(self, key: str) -> Any: ...
@@ -31,7 +31,7 @@ class KPCacheInMem(KPCache):
 
 
 class KPCacheProxy(KPCache):
-    """A pass-through cache used to ensure pointers are kept"""
+    """A pass-through cache used to ensure pointers are kept."""
 
     _cache: KPCache
 

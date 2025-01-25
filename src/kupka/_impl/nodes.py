@@ -1,6 +1,7 @@
 import logging
 from abc import ABC, abstractmethod
-from typing import Any, Generic, Callable, Type, TypeVar, cast
+from collections.abc import Callable
+from typing import Any, Generic, TypeVar, cast
 
 from kupka._impl.kupka import Kupka
 from kupka._impl.kupklass import Kupklass
@@ -11,7 +12,7 @@ _LOGGER = logging.getLogger(__name__)
 
 
 class KP(ABC):
-    """The abstract class for all graphs"""
+    """The abstract class for all graphs."""
 
     __kupka__: Kupka
 
@@ -24,7 +25,7 @@ class KP(ABC):
             self.__kupka__.set_input(node=name, value=value)
 
     @staticmethod
-    def get_kupklass(cls: "Type[KP]") -> Kupklass:
+    def get_kupklass(cls: "type[KP]") -> Kupklass:
         if not hasattr(cls, "__kupklass__"):
             setattr(
                 cls,
@@ -34,7 +35,7 @@ class KP(ABC):
                     inputs=set(),
                     func_map={},
                     input_map={},
-                )
+                ),
             )
         return cast(Kupklass, getattr(cls, "__kupklass__"))
 
@@ -85,7 +86,7 @@ class KPField(KPMember[T], Generic[T]):
         self._inputs = inputs
         self._name = None
 
-    def __set_name__(self, owner: Type[KP], name: str) -> None:
+    def __set_name__(self, owner: type[KP], name: str) -> None:
         _LOGGER.debug(f"[GRAPH INIT] setting name on KPField {name} - owner: {owner}")
         self._name = name
         _kupklass = KP.get_kupklass(owner)
@@ -115,7 +116,7 @@ class KPInput(KPMember[T], Generic[T]):
     def __init__(self) -> None:
         self._name = None
 
-    def __set_name__(self, owner: Type[KP], name: str) -> None:
+    def __set_name__(self, owner: type[KP], name: str) -> None:
         _LOGGER.debug(f"[GRAPH INIT] Setting name on KPInput {name} - owner: {owner}")
         self._name = name
 

@@ -1,6 +1,7 @@
 import logging
-from typing import Callable, TypeVar
+from collections.abc import Callable
 from graphlib import TopologicalSorter
+from typing import TypeVar
 
 import pydot  # type: ignore
 
@@ -69,7 +70,6 @@ class Kupka:
         return self._input_map
 
     def build_exec_graph(self, name: str) -> TopologicalSorter:
-        ts: TopologicalSorter[str] = TopologicalSorter()
         _LOGGER.debug(f"[EXECUTION GRAPH] {self.graph}")
         predecessors = [(name, p) for p in self.graph[name]]
         _LOGGER.debug(f"[EXECUTION GRAPH] {predecessors}")

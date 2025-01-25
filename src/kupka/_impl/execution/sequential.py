@@ -1,10 +1,10 @@
 import logging
+from collections.abc import Callable
 from concurrent.futures import ProcessPoolExecutor
 from multiprocessing import Queue as PQueue
-from typing import Any, Callable
+from typing import Any
 
-from kupka._impl.execution.core import KPExecutor, Contextual
-
+from kupka._impl.execution.core import Contextual, KPExecutor
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -15,10 +15,9 @@ class SequentialProcessKPExecutor(KPExecutor):
         super().__init__(finalized_tasks_queue=queue)  # type: ignore  # multiprocessing.Queue should be subtype of queue.Queue
 
     def submit(self, node: str, func: Callable, kwargs: dict[str, Any], context: Contextual) -> None:
-
         _LOGGER.debug(f"[EXECUTION] Submitting {func.__name__}(**{kwargs}) to pool")
         future = context.submit(func, **kwargs)
-        _LOGGER.debug(f"[EXECUTION] Submit done")
+        _LOGGER.debug("[EXECUTION] Submit done")
         result = future.result()
         self._finalized_tasks_queue.put((node, result))
 

@@ -1,13 +1,14 @@
+from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import Any, Iterator, Type
+from typing import Any
 
-from kupka._impl.execution.core import KPExecutor
 from kupka._impl.cache import KPCache, KPCacheInMem
+from kupka._impl.execution.core import KPExecutor
 
 
 class kp_settings:
     _executor: KPExecutor = KPExecutor()
-    _cache_type: Type[KPCache] = KPCacheInMem
+    _cache_type: type[KPCache] = KPCacheInMem
     _cache_settings: dict[str, Any] = {}
 
     @classmethod
@@ -15,7 +16,7 @@ class kp_settings:
         cls._executor = executor
 
     @classmethod
-    def set_global_cache(cls, cache_type: Type[KPCache], cache_settings: dict[str, Any]) -> None:
+    def set_global_cache(cls, cache_type: type[KPCache], cache_settings: dict[str, Any]) -> None:
         cls._cache_type = cache_type
         cls._cache_settings = cache_settings
 
