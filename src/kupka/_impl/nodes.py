@@ -5,6 +5,11 @@ from typing import Any, Generic, TypeVar, cast
 
 from kupka._impl.kupka import Kupka
 from kupka._impl.kupklass import Kupklass
+from kupka._impl import graph_tools as gt
+from kupka._impl.visualisation import (
+    build_vis_graph,
+    display_graph,
+)
 from kupka._impl.settings import kp_settings
 
 T = TypeVar("T")
@@ -39,6 +44,10 @@ class KP(ABC):
             )
         return cast(Kupklass, getattr(cls, "__kupklass__"))
 
+    def _repr_png_(self) -> Any:
+        graph = build_vis_graph(self.__kupka__.graph)
+        return display_graph(graph)
+
 
 class KPMember(ABC, Generic[T]):
     @property
@@ -69,10 +78,9 @@ class KPNode(Kupka, Generic[T]):
         return cast(T, exec(self._node, self))
 
     def _repr_png_(self) -> Any:
-        from IPython.display import SVG, display  # type: ignore
-
-        graph = self.build_viz_graph(self._node)
-        return display(SVG(graph.create_svg()))
+        subgraph = gt.get_subgraph(self.graph, self._node)
+        vis_graph = build_vis_graph(subgraph)
+        return display_graph(vis_graph)
 
 
 class KPField(KPMember[T], Generic[T]):
