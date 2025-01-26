@@ -47,5 +47,5 @@ class MultiprocessingKPExecutor(KPExecutor):
 
     def context(self) -> Contextual:
         return ProcessPoolExecutor(
-            max_workers=self._max_workers, initializer=init_pool_processes, initargs=(self._queue,)
-        )  # type: ignore  # unable to map initargs types to initializer signature
+            max_workers=self._max_workers, initializer=init_pool_processes, initargs=(self._queue,)  # type: ignore  # unable to map initargs types to initializer signature
+        )
